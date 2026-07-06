@@ -251,7 +251,11 @@ def main() -> int:
                     )
                     break
 
-                debug = compute_landmark_debug(landmarks, features)
+                debug = compute_landmark_debug(
+                    landmarks,
+                    features,
+                    required_landmarks="hand",
+                )
                 zero_ratio = debug["zero_ratio"]
                 frame_is_usable = debug["frame_is_usable"]
 
@@ -282,6 +286,7 @@ def main() -> int:
                 landmarks,
                 zero_ratio,
                 frame_is_usable,
+                required_landmarks="hand",
             )
 
             display_prediction = (

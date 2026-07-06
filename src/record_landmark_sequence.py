@@ -27,6 +27,8 @@ from config import (
 from feature_extractor import FEATURE_COUNT, extract_landmarks, flatten_landmarks
 from mediapipe_utils import create_holistic_landmarker
 from webcam_overlay import (
+    REQUIRED_LANDMARK_MODES,
+    ZERO_RATIO_USABLE_THRESHOLD,
     compute_landmark_debug,
     draw_all_landmarks,
     draw_landmark_debug_overlay,
@@ -59,6 +61,15 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=PROCESS_EVERY_N_FRAMES,
         help="Run MediaPipe every N frames and reuse the latest result between runs.",
+    )
+    parser.add_argument(
+        "--required-landmarks",
+        choices=REQUIRED_LANDMARK_MODES,
+        default="hand",
+        help=(
+            "Landmark requirement for usable frames: hand=pose plus at least one hand, "
+            "face=pose plus face, pose=pose only, any=pose or face or hand."
+        ),
     )
     return parser.parse_args()
 
@@ -178,7 +189,11 @@ def main() -> int:
                 result = landmarker.detect_for_video(mp_image, timestamp_ms)
                 landmarks = extract_landmarks(result)
                 current_features = flatten_landmarks(landmarks)
-                debug = compute_landmark_debug(landmarks, current_features)
+                debug = compute_landmark_debug(
+                    landmarks,
+                    current_features,
+                    required_landmarks=args.required_landmarks,
+                )
                 current_zero_ratio = debug["zero_ratio"]
                 current_frame_is_usable = debug["frame_is_usable"]
             else:
@@ -189,24 +204,25 @@ def main() -> int:
             if is_recording:
                 elapsed = time.perf_counter() - recording_started_at
                 if elapsed >= args.seconds:
-                    sample_path = _next_sample_path(output_dir, label)
                     saved_array = np.asarray(sequence, dtype=np.float32)
                     if saved_array.size == 0:
-                        saved_array = saved_array.reshape(0, FEATURE_COUNT)
-                    np.save(sample_path, saved_array)
-                    sample_zero_ratio = (
-                        1.0 if saved_array.size == 0 else float(np.mean(saved_array == 0))
-                    )
-                    saved_message = f"Saved: {_display_path(sample_path)}"
-                    saved_message_until = time.perf_counter() + 3.0
-                    print(
-                        f"{saved_message} shape=({len(sequence)}, {FEATURE_COUNT}) "
-                        f"zero_ratio={sample_zero_ratio:.2f}"
-                    )
-                    if sample_zero_ratio > 0.90:
-                        warning_message = "Warning: saved sample is mostly zeros"
+                        warning_message = "Warning: no usable frames collected; sample not saved"
                         warning_message_until = time.perf_counter() + 5.0
                         print(warning_message)
+                    else:
+                        sample_path = _next_sample_path(output_dir, label)
+                        np.save(sample_path, saved_array)
+                        sample_zero_ratio = float(np.mean(saved_array == 0))
+                        saved_message = f"Saved: {_display_path(sample_path)}"
+                        saved_message_until = time.perf_counter() + 3.0
+                        print(
+                            f"{saved_message} shape=({len(sequence)}, {FEATURE_COUNT}) "
+                            f"zero_ratio={sample_zero_ratio:.2f}"
+                        )
+                        if sample_zero_ratio >= ZERO_RATIO_USABLE_THRESHOLD:
+                            warning_message = "Warning: saved sample is mostly zeros"
+                            warning_message_until = time.perf_counter() + 5.0
+                            print(warning_message)
                     sequence = []
                     is_recording = False
 
@@ -216,6 +232,7 @@ def main() -> int:
                 landmarks,
                 current_zero_ratio,
                 current_frame_is_usable,
+                required_landmarks=args.required_landmarks,
             )
 
             if is_recording:
@@ -247,6 +264,7 @@ def main() -> int:
                 recording_started_at = time.perf_counter()
                 is_recording = True
                 saved_message = ""
+                warning_message = ""
     finally:
         cap.release()
         landmarker.close()

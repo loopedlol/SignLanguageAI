@@ -7,6 +7,8 @@ import numpy as np
 WHITE = (255, 255, 255)
 GREEN = (40, 200, 40)
 RED = (40, 40, 220)
+REQUIRED_LANDMARK_MODES = ("hand", "face", "pose", "any")
+ZERO_RATIO_USABLE_THRESHOLD = 0.98
 
 
 def draw_text(
@@ -32,9 +34,11 @@ def draw_status(
     label: str,
     detected: bool,
     row: int,
+    count: int | None = None,
 ) -> None:
     status = "detected" if detected else "missing"
-    draw_text(frame, f"{label}: {status}", row, GREEN if detected else RED)
+    count_text = "" if count is None else f" | count: {count}"
+    draw_text(frame, f"{label}: {status}{count_text}", row, GREEN if detected else RED)
 
 
 def draw_landmark_points(
@@ -65,22 +69,52 @@ def draw_all_landmarks(
 def compute_landmark_debug(
     landmarks: dict[str, list[list[float]]],
     features: list[float],
+    required_landmarks: str = "hand",
 ) -> dict:
-    pose_detected = len(landmarks["pose"]) > 0
-    face_detected = len(landmarks["face"]) > 0
-    left_hand_detected = len(landmarks["left_hand"]) > 0
-    right_hand_detected = len(landmarks["right_hand"]) > 0
+    if required_landmarks not in REQUIRED_LANDMARK_MODES:
+        supported = ", ".join(REQUIRED_LANDMARK_MODES)
+        raise ValueError(
+            f"Unsupported required_landmarks={required_landmarks!r}. "
+            f"Choose one of: {supported}."
+        )
+
+    pose_count = len(landmarks["pose"])
+    face_count = len(landmarks["face"])
+    left_hand_count = len(landmarks["left_hand"])
+    right_hand_count = len(landmarks["right_hand"])
+    pose_detected = pose_count > 0
+    face_detected = face_count > 0
+    left_hand_detected = left_hand_count > 0
+    right_hand_detected = right_hand_count > 0
     has_hand = left_hand_detected or right_hand_detected
-    zero_ratio = float(np.mean(np.asarray(features, dtype=np.float32) == 0))
-    frame_is_usable = pose_detected and has_hand and zero_ratio < 0.90
+    feature_array = np.asarray(features, dtype=np.float32)
+    zero_ratio = 1.0 if feature_array.size == 0 else float(np.mean(feature_array == 0))
+
+    if required_landmarks == "hand":
+        requirement_met = pose_detected and has_hand
+    elif required_landmarks == "face":
+        requirement_met = pose_detected and face_detected
+    elif required_landmarks == "pose":
+        requirement_met = pose_detected
+    else:
+        requirement_met = pose_detected or face_detected or has_hand
+
+    frame_is_usable = requirement_met and zero_ratio < ZERO_RATIO_USABLE_THRESHOLD
 
     return {
+        "required_landmarks": required_landmarks,
+        "pose_count": pose_count,
+        "face_count": face_count,
+        "left_hand_count": left_hand_count,
+        "right_hand_count": right_hand_count,
         "pose_detected": pose_detected,
         "face_detected": face_detected,
         "left_hand_detected": left_hand_detected,
         "right_hand_detected": right_hand_detected,
         "has_hand": has_hand,
+        "requirement_met": requirement_met,
         "zero_ratio": zero_ratio,
+        "zero_ratio_threshold": ZERO_RATIO_USABLE_THRESHOLD,
         "frame_is_usable": frame_is_usable,
     }
 
@@ -90,20 +124,30 @@ def draw_landmark_debug_overlay(
     landmarks: dict[str, list[list[float]]],
     zero_ratio: float,
     frame_is_usable: bool | None = None,
+    required_landmarks: str | None = None,
     start_row: int = 0,
 ) -> int:
-    draw_status(frame, "Pose", len(landmarks["pose"]) > 0, start_row)
-    draw_status(frame, "Face", len(landmarks["face"]) > 0, start_row + 1)
-    draw_status(frame, "Left hand", len(landmarks["left_hand"]) > 0, start_row + 2)
-    draw_status(frame, "Right hand", len(landmarks["right_hand"]) > 0, start_row + 3)
+    pose_count = len(landmarks["pose"])
+    face_count = len(landmarks["face"])
+    left_hand_count = len(landmarks["left_hand"])
+    right_hand_count = len(landmarks["right_hand"])
+
+    draw_status(frame, "Pose", pose_count > 0, start_row, pose_count)
+    draw_status(frame, "Face", face_count > 0, start_row + 1, face_count)
+    draw_status(frame, "Left hand", left_hand_count > 0, start_row + 2, left_hand_count)
+    draw_status(frame, "Right hand", right_hand_count > 0, start_row + 3, right_hand_count)
     draw_text(
         frame,
         f"zero ratio: {zero_ratio:.2f}",
         start_row + 4,
-        GREEN if zero_ratio < 0.90 else RED,
+        GREEN if zero_ratio < ZERO_RATIO_USABLE_THRESHOLD else RED,
     )
 
     next_row = start_row + 5
+    if required_landmarks is not None:
+        draw_text(frame, f"required landmarks: {required_landmarks}", next_row)
+        next_row += 1
+
     if frame_is_usable is not None:
         draw_text(
             frame,
