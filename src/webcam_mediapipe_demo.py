@@ -66,7 +66,7 @@ def main() -> int:
                 break
 
             frame = cv2.flip(frame, 1)
-            should_process = frame_count % PROCESS_EVERY_N_FRAMES == 1
+            should_process = (frame_count - 1) % PROCESS_EVERY_N_FRAMES == 0
 
             if should_process:
                 processing_start = time.perf_counter()
