@@ -20,71 +20,12 @@ from config import (
     MEDIAPIPE_MODEL_PATH,
     PROCESS_EVERY_N_FRAMES,
 )
-from feature_extractor import extract_landmarks
+from feature_extractor import FEATURE_COUNT, extract_landmarks, flatten_landmarks
 from mediapipe_utils import create_holistic_landmarker
+from webcam_overlay import draw_all_landmarks, draw_landmark_debug_overlay, draw_text
 
 
 WINDOW_NAME = "KSL MediaPipe Tasks Demo"
-
-
-def _draw_status(frame: np.ndarray, label: str, detected: bool, row: int) -> None:
-    status = "detected" if detected else "missing"
-    color = (40, 200, 40) if detected else (40, 40, 220)
-    y = 30 + row * 28
-
-    cv2.putText(
-        frame,
-        f"{label}: {status}",
-        (10, y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        color,
-        2,
-        cv2.LINE_AA,
-    )
-
-
-def _draw_fps(frame: np.ndarray, display_fps: float, processing_fps: float) -> None:
-    cv2.putText(
-        frame,
-        f"Display FPS: {display_fps:.1f}",
-        (10, 30 + 4 * 28),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        frame,
-        f"MediaPipe FPS: {processing_fps:.1f}",
-        (10, 30 + 5 * 28),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-
-
-def _draw_landmark_points(
-    frame: np.ndarray, landmarks: list[list[float]], color: tuple[int, int, int]
-) -> None:
-    height, width, _ = frame.shape
-
-    for x_norm, y_norm, _z_norm in landmarks:
-        x = int(x_norm * width)
-        y = int(y_norm * height)
-
-        if 0 <= x < width and 0 <= y < height:
-            cv2.circle(frame, (x, y), 2, color, -1)
-
-
-def _draw_all_landmarks(frame: np.ndarray, landmarks: dict[str, list[list[float]]]) -> None:
-    _draw_landmark_points(frame, landmarks["pose"], (80, 220, 120))
-    _draw_landmark_points(frame, landmarks["face"], (80, 110, 255))
-    _draw_landmark_points(frame, landmarks["left_hand"], (255, 180, 90))
-    _draw_landmark_points(frame, landmarks["right_hand"], (90, 220, 255))
 
 
 def main() -> int:
@@ -113,6 +54,8 @@ def main() -> int:
         "left_hand": [],
         "right_hand": [],
     }
+    features = [0.0] * FEATURE_COUNT
+    zero_ratio = 1.0
 
     try:
         while True:
@@ -139,12 +82,14 @@ def main() -> int:
 
                 result = landmarker.detect_for_video(mp_image, timestamp_ms)
                 landmarks = extract_landmarks(result)
+                features = flatten_landmarks(landmarks)
+                zero_ratio = float(np.mean(np.asarray(features, dtype=np.float32) == 0))
 
                 processing_elapsed = time.perf_counter() - processing_start
                 if processing_elapsed > 0:
                     processing_fps = 1.0 / processing_elapsed
 
-            _draw_all_landmarks(frame, landmarks)
+            draw_all_landmarks(frame, landmarks)
 
             current_time = time.perf_counter()
             elapsed = current_time - previous_time
@@ -152,11 +97,14 @@ def main() -> int:
             if elapsed > 0:
                 display_fps = 1.0 / elapsed
 
-            _draw_status(frame, "Pose", len(landmarks["pose"]) > 0, 0)
-            _draw_status(frame, "Face", len(landmarks["face"]) > 0, 1)
-            _draw_status(frame, "Left hand", len(landmarks["left_hand"]) > 0, 2)
-            _draw_status(frame, "Right hand", len(landmarks["right_hand"]) > 0, 3)
-            _draw_fps(frame, display_fps, processing_fps)
+            next_row = draw_landmark_debug_overlay(
+                frame,
+                landmarks,
+                zero_ratio,
+                frame_is_usable=None,
+            )
+            draw_text(frame, f"Display FPS: {display_fps:.1f}", next_row)
+            draw_text(frame, f"MediaPipe FPS: {processing_fps:.1f}", next_row + 1)
 
             cv2.imshow(WINDOW_NAME, frame)
 

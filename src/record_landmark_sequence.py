@@ -26,6 +26,12 @@ from config import (
 )
 from feature_extractor import FEATURE_COUNT, extract_landmarks, flatten_landmarks
 from mediapipe_utils import create_holistic_landmarker
+from webcam_overlay import (
+    compute_landmark_debug,
+    draw_all_landmarks,
+    draw_landmark_debug_overlay,
+    draw_text,
+)
 
 
 WINDOW_NAME = "KSL Landmark Sequence Recorder"
@@ -88,56 +94,6 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
-def _draw_text(
-    frame: np.ndarray,
-    text: str,
-    row: int,
-    color: tuple[int, int, int] = (255, 255, 255),
-) -> None:
-    cv2.putText(
-        frame,
-        text,
-        (10, 30 + row * 28),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        color,
-        2,
-        cv2.LINE_AA,
-    )
-
-
-def _draw_landmark_points(
-    frame: np.ndarray, landmarks: list[list[float]], color: tuple[int, int, int]
-) -> None:
-    height, width, _ = frame.shape
-
-    for x_norm, y_norm, _z_norm in landmarks:
-        x = int(x_norm * width)
-        y = int(y_norm * height)
-
-        if 0 <= x < width and 0 <= y < height:
-            cv2.circle(frame, (x, y), 2, color, -1)
-
-
-def _draw_all_landmarks(frame: np.ndarray, landmarks: dict[str, list[list[float]]]) -> None:
-    _draw_landmark_points(frame, landmarks["pose"], (80, 220, 120))
-    _draw_landmark_points(frame, landmarks["face"], (80, 110, 255))
-    _draw_landmark_points(frame, landmarks["left_hand"], (255, 180, 90))
-    _draw_landmark_points(frame, landmarks["right_hand"], (90, 220, 255))
-
-
-def _draw_status(frame: np.ndarray, label: str, detected: bool, row: int) -> None:
-    status = "detected" if detected else "missing"
-    color = (40, 200, 40) if detected else (40, 40, 220)
-    _draw_text(frame, f"{label}: {status}", row, color)
-
-
-def _zero_ratio(features: list[float]) -> float:
-    if not features:
-        return 1.0
-    return float(np.mean(np.asarray(features, dtype=np.float32) == 0))
-
-
 def _open_camera() -> cv2.VideoCapture | None:
     cap = cv2.VideoCapture(CAMERA_INDEX)
     if not cap.isOpened():
@@ -189,6 +145,7 @@ def main() -> int:
     sequence: list[list[float]] = []
     current_features = [0.0] * FEATURE_COUNT
     current_zero_ratio = 1.0
+    current_frame_is_usable = False
     landmarks = {
         "pose": [],
         "face": [],
@@ -221,16 +178,25 @@ def main() -> int:
                 result = landmarker.detect_for_video(mp_image, timestamp_ms)
                 landmarks = extract_landmarks(result)
                 current_features = flatten_landmarks(landmarks)
-                current_zero_ratio = _zero_ratio(current_features)
+                debug = compute_landmark_debug(landmarks, current_features)
+                current_zero_ratio = debug["zero_ratio"]
+                current_frame_is_usable = debug["frame_is_usable"]
+            else:
+                current_frame_is_usable = False
 
-            if is_recording:
+            if is_recording and current_frame_is_usable:
                 sequence.append(current_features)
+            if is_recording:
                 elapsed = time.perf_counter() - recording_started_at
                 if elapsed >= args.seconds:
                     sample_path = _next_sample_path(output_dir, label)
                     saved_array = np.asarray(sequence, dtype=np.float32)
+                    if saved_array.size == 0:
+                        saved_array = saved_array.reshape(0, FEATURE_COUNT)
                     np.save(sample_path, saved_array)
-                    sample_zero_ratio = float(np.mean(saved_array == 0))
+                    sample_zero_ratio = (
+                        1.0 if saved_array.size == 0 else float(np.mean(saved_array == 0))
+                    )
                     saved_message = f"Saved: {_display_path(sample_path)}"
                     saved_message_until = time.perf_counter() + 3.0
                     print(
@@ -244,30 +210,31 @@ def main() -> int:
                     sequence = []
                     is_recording = False
 
-            _draw_all_landmarks(frame, landmarks)
-            _draw_status(frame, "Pose", len(landmarks["pose"]) > 0, 0)
-            _draw_status(frame, "Face", len(landmarks["face"]) > 0, 1)
-            _draw_status(frame, "Left hand", len(landmarks["left_hand"]) > 0, 2)
-            _draw_status(frame, "Right hand", len(landmarks["right_hand"]) > 0, 3)
-            _draw_text(frame, f"zero ratio: {current_zero_ratio:.2f}", 4)
+            draw_all_landmarks(frame, landmarks)
+            next_row = draw_landmark_debug_overlay(
+                frame,
+                landmarks,
+                current_zero_ratio,
+                current_frame_is_usable,
+            )
 
             if is_recording:
-                _draw_text(frame, f"Recording: {label}", 5, (40, 40, 220))
-                _draw_text(
+                draw_text(frame, f"Recording: {label}", next_row, (40, 40, 220))
+                draw_text(
                     frame,
-                    f"Frames collected: {len(sequence)} / {target_frames}",
-                    6,
+                    f"Usable frames collected: {len(sequence)} / {target_frames}",
+                    next_row + 1,
                     (40, 40, 220),
                 )
             else:
-                _draw_text(frame, "Press r to start recording", 5)
-                _draw_text(frame, "Press q to quit", 6)
-                _draw_text(frame, f"Label: {label}", 7)
-                _draw_text(frame, f"Feature count: {FEATURE_COUNT}", 8)
+                draw_text(frame, "Press r to start recording", next_row)
+                draw_text(frame, "Press q to quit", next_row + 1)
+                draw_text(frame, f"Label: {label}", next_row + 2)
+                draw_text(frame, f"Feature count: {FEATURE_COUNT}", next_row + 3)
                 if saved_message and time.perf_counter() < saved_message_until:
-                    _draw_text(frame, saved_message, 9, (40, 200, 40))
+                    draw_text(frame, saved_message, next_row + 4, (40, 200, 40))
                 if warning_message and time.perf_counter() < warning_message_until:
-                    _draw_text(frame, warning_message, 10, (40, 40, 220))
+                    draw_text(frame, warning_message, next_row + 5, (40, 40, 220))
 
             cv2.imshow(WINDOW_NAME, frame)
             key = cv2.waitKey(30) & 0xFF

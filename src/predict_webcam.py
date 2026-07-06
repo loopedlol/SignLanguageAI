@@ -33,6 +33,12 @@ from mediapipe_utils import create_holistic_landmarker
 from model import TemporalCNN
 from normalize_landmarks import normalize_sequence
 from train import get_device
+from webcam_overlay import (
+    compute_landmark_debug,
+    draw_all_landmarks,
+    draw_landmark_debug_overlay,
+    draw_text,
+)
 
 
 WINDOW_NAME = "KSL Live Prediction"
@@ -106,51 +112,6 @@ def _open_camera(camera_index: int) -> cv2.VideoCapture | None:
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
     return cap
-
-
-def _draw_text(
-    frame: np.ndarray,
-    text: str,
-    row: int,
-    color: tuple[int, int, int] = (255, 255, 255),
-) -> None:
-    cv2.putText(
-        frame,
-        text,
-        (10, 30 + row * 28),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        color,
-        2,
-        cv2.LINE_AA,
-    )
-
-
-def _draw_landmark_points(
-    frame: np.ndarray,
-    landmarks: list[list[float]],
-    color: tuple[int, int, int],
-) -> None:
-    height, width, _ = frame.shape
-
-    for x_norm, y_norm, _z_norm in landmarks:
-        x = int(x_norm * width)
-        y = int(y_norm * height)
-        if 0 <= x < width and 0 <= y < height:
-            cv2.circle(frame, (x, y), 2, color, -1)
-
-
-def _draw_all_landmarks(frame: np.ndarray, landmarks: dict[str, list[list[float]]]) -> None:
-    _draw_landmark_points(frame, landmarks["pose"], (80, 220, 120))
-    _draw_landmark_points(frame, landmarks["face"], (80, 110, 255))
-    _draw_landmark_points(frame, landmarks["left_hand"], (255, 180, 90))
-    _draw_landmark_points(frame, landmarks["right_hand"], (90, 220, 255))
-
-
-def _draw_status(frame: np.ndarray, label: str, detected: bool, row: int) -> None:
-    status = "detected" if detected else "missing"
-    color = (40, 200, 40) if detected else (40, 40, 220)
-    _draw_text(frame, f"{label}: {status}", row, color)
 
 
 def _predict_sequence(
@@ -290,12 +251,9 @@ def main() -> int:
                     )
                     break
 
-                pose_detected = len(landmarks["pose"]) > 0
-                left_hand_detected = len(landmarks["left_hand"]) > 0
-                right_hand_detected = len(landmarks["right_hand"]) > 0
-                has_hand = left_hand_detected or right_hand_detected
-                zero_ratio = float(np.mean(np.asarray(features, dtype=np.float32) == 0))
-                frame_is_usable = pose_detected and has_hand and zero_ratio < 0.90
+                debug = compute_landmark_debug(landmarks, features)
+                zero_ratio = debug["zero_ratio"]
+                frame_is_usable = debug["frame_is_usable"]
 
                 if frame_is_usable:
                     sequence_buffer.append(features)
@@ -318,18 +276,12 @@ def main() -> int:
             else:
                 frame_is_usable = False
 
-            _draw_all_landmarks(frame, landmarks)
-            _draw_status(frame, "Pose", len(landmarks["pose"]) > 0, 0)
-            _draw_status(frame, "Face", len(landmarks["face"]) > 0, 1)
-            _draw_status(frame, "Left hand", len(landmarks["left_hand"]) > 0, 2)
-            _draw_status(frame, "Right hand", len(landmarks["right_hand"]) > 0, 3)
-            zero_color = (40, 200, 40) if zero_ratio < 0.90 else (40, 40, 220)
-            _draw_text(frame, f"zero ratio: {zero_ratio:.2f}", 4, zero_color)
-            _draw_text(
+            draw_all_landmarks(frame, landmarks)
+            next_row = draw_landmark_debug_overlay(
                 frame,
-                f"frame used: {'yes' if frame_is_usable else 'no'}",
-                5,
-                (40, 200, 40) if frame_is_usable else (40, 40, 220),
+                landmarks,
+                zero_ratio,
+                frame_is_usable,
             )
 
             display_prediction = (
@@ -342,14 +294,24 @@ def main() -> int:
                 if display_prediction != "unsure"
                 else (40, 40, 220)
             )
-            _draw_text(frame, f"buffer: {len(sequence_buffer)}/{sequence_length}", 6)
-            _draw_text(frame, f"Prediction: {display_prediction}", 7, prediction_color)
-            _draw_text(frame, f"Confidence: {smoothed_confidence:.2f}", 8, prediction_color)
-            _draw_text(frame, f"raw prediction: {raw_prediction}", 9)
-            _draw_text(frame, f"raw confidence: {raw_confidence:.2f}", 10)
-            _draw_text(frame, f"smoothed prediction: {smoothed_prediction}", 11)
-            _draw_text(frame, f"device: {device}", 12)
-            _draw_text(frame, f"processed frames: {processed_frame_count}", 13)
+            draw_text(frame, f"buffer: {len(sequence_buffer)}/{sequence_length}", next_row)
+            draw_text(
+                frame,
+                f"Prediction: {display_prediction}",
+                next_row + 1,
+                prediction_color,
+            )
+            draw_text(
+                frame,
+                f"Confidence: {smoothed_confidence:.2f}",
+                next_row + 2,
+                prediction_color,
+            )
+            draw_text(frame, f"raw prediction: {raw_prediction}", next_row + 3)
+            draw_text(frame, f"raw confidence: {raw_confidence:.2f}", next_row + 4)
+            draw_text(frame, f"smoothed prediction: {smoothed_prediction}", next_row + 5)
+            draw_text(frame, f"device: {device}", next_row + 6)
+            draw_text(frame, f"processed frames: {processed_frame_count}", next_row + 7)
 
             cv2.imshow(WINDOW_NAME, frame)
             if cv2.waitKey(30) & 0xFF == ord("q"):

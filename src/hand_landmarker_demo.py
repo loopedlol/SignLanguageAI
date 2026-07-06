@@ -20,27 +20,10 @@ from config import (
     HAND_LANDMARKER_MODEL_PATH,
 )
 from mediapipe_utils import create_hand_landmarker
+from webcam_overlay import draw_text
 
 
 WINDOW_NAME = "KSL HandLandmarker Debug Demo"
-
-
-def _draw_text(
-    frame: np.ndarray,
-    text: str,
-    row: int,
-    color: tuple[int, int, int] = (255, 255, 255),
-) -> None:
-    cv2.putText(
-        frame,
-        text,
-        (10, 30 + row * 28),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        color,
-        2,
-        cv2.LINE_AA,
-    )
 
 
 def _draw_hand_landmarks(frame: np.ndarray, hand_landmarks) -> None:
@@ -103,9 +86,9 @@ def main() -> int:
             if elapsed > 0:
                 fps = 1.0 / elapsed
 
-            _draw_text(frame, f"hands detected: {len(hand_landmarks)}", 0)
-            _draw_text(frame, f"FPS: {fps:.1f}", 1)
-            _draw_text(frame, "Press q to quit", 2)
+            draw_text(frame, f"hands detected: {len(hand_landmarks)}", 0)
+            draw_text(frame, f"FPS: {fps:.1f}", 1)
+            draw_text(frame, "Press q to quit", 2)
 
             cv2.imshow(WINDOW_NAME, frame)
             if cv2.waitKey(30) & 0xFF == ord("q"):
