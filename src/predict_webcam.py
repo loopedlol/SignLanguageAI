@@ -225,7 +225,7 @@ def main() -> int:
                 break
 
             frame = cv2.flip(frame, 1)
-            should_process = frame_count % args.process_every_n_frames == 1
+            should_process = (frame_count - 1) % args.process_every_n_frames == 0
 
             if should_process:
                 processed_frame_count += 1
