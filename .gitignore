@@ -1,7 +1,9 @@
 .venv/
 __pycache__/
 data/
-scripts/
+scripts/*
+!scripts/
+!scripts/*.sh
 *.py[cod]
 
 # Downloaded MediaPipe model files can be large and are environment-specific.

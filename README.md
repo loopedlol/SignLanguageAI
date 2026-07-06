@@ -329,6 +329,21 @@ scripts/evaluate_30.sh
 scripts/predict_30.sh
 ```
 
+## Reset Data or Checkpoints
+
+Use these scripts when you want to safely restart data collection or training:
+
+```bash
+bash scripts/clear_data.sh
+bash scripts/clear_models.sh
+bash scripts/clear_all.sh
+```
+
+- `clear_data.sh` deletes recorded and normalized landmark samples.
+- `clear_models.sh` deletes trained checkpoints.
+- `clear_all.sh` deletes both generated landmark samples and trained checkpoints.
+- None of these scripts delete the MediaPipe `.task` model files.
+
 ## Troubleshooting MediaPipe
 
 If `hand_landmarker_demo.py` works but `predict_webcam.py` does not:

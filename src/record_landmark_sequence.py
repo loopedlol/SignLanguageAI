@@ -162,7 +162,7 @@ def main() -> int:
                 break
 
             frame = cv2.flip(frame, 1)
-            should_process = frame_count % args.process_every_n_frames == 1
+            should_process = (frame_count - 1) % args.process_every_n_frames == 0
 
             if should_process:
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
