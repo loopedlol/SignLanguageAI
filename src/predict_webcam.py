@@ -17,19 +17,26 @@ import torch
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from config import (
+    BEST_CHECKPOINT_PATH,
+    CAMERA_FPS,
+    CAMERA_HEIGHT,
+    CAMERA_INDEX,
+    CAMERA_WIDTH,
+    CONFIDENCE_THRESHOLD,
+    MEDIAPIPE_MODEL_PATH,
+    PREDICTION_INTERVAL,
+    PROCESS_EVERY_N_FRAMES,
+    PROJECT_ROOT,
+    SEQUENCE_LENGTH,
+)
 from feature_extractor import extract_landmarks, flatten_landmarks
 from model import TemporalCNN
 from normalize_landmarks import normalize_sequence
 from train import get_device
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "best.pt"
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "holistic_landmarker.task"
 WINDOW_NAME = "KSL Live Prediction"
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
-CAMERA_FPS = 30
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,25 +44,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=DEFAULT_CHECKPOINT,
+        default=BEST_CHECKPOINT_PATH,
         help="Path to a trained TemporalCNN checkpoint.",
     )
     parser.add_argument(
         "--model-path",
         type=Path,
-        default=DEFAULT_MODEL_PATH,
+        default=MEDIAPIPE_MODEL_PATH,
         help="Path to the MediaPipe Holistic Landmarker .task file.",
     )
     parser.add_argument(
         "--sequence-length",
         type=int,
-        default=None,
-        help="Rolling buffer length. Defaults to checkpoint metadata.",
+        default=SEQUENCE_LENGTH,
+        help="Rolling buffer length.",
     )
-    parser.add_argument("--camera-index", type=int, default=0)
-    parser.add_argument("--process-every-n-frames", type=int, default=2)
-    parser.add_argument("--confidence-threshold", type=float, default=0.80)
-    parser.add_argument("--prediction-interval", type=int, default=5)
+    parser.add_argument("--camera-index", type=int, default=CAMERA_INDEX)
+    parser.add_argument("--process-every-n-frames", type=int, default=PROCESS_EVERY_N_FRAMES)
+    parser.add_argument("--confidence-threshold", type=float, default=CONFIDENCE_THRESHOLD)
+    parser.add_argument("--prediction-interval", type=int, default=PREDICTION_INTERVAL)
     return parser.parse_args()
 
 
@@ -221,6 +228,12 @@ def main() -> int:
         return 1
     if not 0 <= args.confidence_threshold <= 1:
         print("--confidence-threshold must be between 0 and 1.", file=sys.stderr)
+        return 1
+    if args.model_path.suffix != ".task":
+        print("Error: --model-path should point to a MediaPipe .task file.", file=sys.stderr)
+        return 1
+    if args.checkpoint.suffix != ".pt":
+        print("Error: --checkpoint should point to a PyTorch .pt checkpoint.", file=sys.stderr)
         return 1
 
     device = get_device()

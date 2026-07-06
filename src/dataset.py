@@ -7,11 +7,12 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from config import INPUT_FEATURES, NORMALIZED_LANDMARKS_DIR, PROJECT_ROOT, SEQUENCE_LENGTH
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_DIR = PROJECT_ROOT / "data" / "normalized_landmarks"
-DEFAULT_SEQUENCE_LENGTH = 60
-FEATURE_COUNT = 1659
+
+DEFAULT_DATA_DIR = NORMALIZED_LANDMARKS_DIR
+DEFAULT_SEQUENCE_LENGTH = SEQUENCE_LENGTH
+FEATURE_COUNT = INPUT_FEATURES
 
 
 class LandmarkSequenceDataset(Dataset):

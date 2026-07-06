@@ -7,13 +7,11 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from dataset import DEFAULT_DATA_DIR, LandmarkSequenceDataset
+from config import BEST_CHECKPOINT_PATH, NORMALIZED_LANDMARKS_DIR, PROJECT_ROOT, SEQUENCE_LENGTH
+from dataset import LandmarkSequenceDataset
 from model import TemporalCNN
 from train import get_device
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "best.pt"
 
 
 @dataclass
@@ -33,20 +31,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=DEFAULT_DATA_DIR,
+        default=NORMALIZED_LANDMARKS_DIR,
         help="Directory containing normalized label subfolders.",
     )
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=DEFAULT_CHECKPOINT,
+        default=BEST_CHECKPOINT_PATH,
         help="Path to a saved training checkpoint.",
     )
     parser.add_argument(
         "--sequence-length",
         type=int,
-        default=None,
-        help="Fixed number of frames per sample. Defaults to checkpoint metadata.",
+        default=SEQUENCE_LENGTH,
+        help="Fixed number of frames per sample.",
     )
     parser.add_argument(
         "--show-correct",

@@ -1,5 +1,7 @@
 .venv/
 __pycache__/
+data/
+scripts/
 *.py[cod]
 
 # Downloaded MediaPipe model files can be large and are environment-specific.
@@ -8,3 +10,4 @@ models/*.task
 
 # Training outputs.
 checkpoints/
+checkpoints_*/

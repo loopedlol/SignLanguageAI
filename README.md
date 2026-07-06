@@ -13,7 +13,9 @@ requirements.txt
 models/
   holistic_landmarker.task
 src/
+  config.py
   webcam_mediapipe_demo.py
+  hand_landmarker_demo.py
   record_landmark_sequence.py
   inspect_dataset.py
   normalize_landmarks.py
@@ -23,6 +25,11 @@ src/
   evaluate.py
   predict_webcam.py
   feature_extractor.py
+scripts/
+  run_demo.sh
+  train_30.sh
+  evaluate_30.sh
+  predict_30.sh
 data/
   raw_videos/
   processed_landmarks/
@@ -32,6 +39,11 @@ data/
 The `models/holistic_landmarker.task` file is not committed. Download the
 MediaPipe Holistic Landmarker task model and place it at that path before
 running the demo.
+
+Most default paths and runtime settings live in `src/config.py`. You can edit
+that file to change the default sequence length, checkpoint folder, camera
+settings, prediction threshold, and training settings without typing long
+terminal commands.
 
 ## Install
 
@@ -70,6 +82,16 @@ from mediapipe.tasks.python import vision
 
 It does not use the old `mediapipe.solutions` API.
 
+Important file distinction:
+
+- MediaPipe `.task` file: the landmark detector used to extract body, face, and
+  hand points from webcam frames.
+- PyTorch `.pt` file: the trained KSL sign classifier checkpoint saved by
+  `src/train.py`.
+
+Do not swap these paths. The prediction script checks that `--model-path` points
+to a `.task` file and `--checkpoint` points to a `.pt` file.
+
 ## Run the Webcam Demo
 
 ```bash
@@ -77,6 +99,24 @@ python src/webcam_mediapipe_demo.py
 ```
 
 Press `q` while the OpenCV window is focused to exit cleanly.
+
+## Debug Hand Detection Only
+
+To test MediaPipe hand landmark detection independently from Holistic and the
+Temporal CNN, download the MediaPipe Hand Landmarker model to:
+
+```text
+models/hand_landmarker.task
+```
+
+Then run:
+
+```bash
+python src/hand_landmarker_demo.py
+```
+
+This demo uses only the MediaPipe Tasks API `HandLandmarker`, draws hand
+landmark dots, displays `hands detected: 0/1/2`, and exits with `q`.
 
 ## Record Landmark Sequences
 
@@ -93,7 +133,7 @@ python src/record_landmark_sequence.py \
   --label thank_you \
   --seconds 2 \
   --output-dir data/processed_landmarks \
-  --process-every-n-frames 2
+  --process-every-n-frames 1
 ```
 
 When the preview window opens:
@@ -149,9 +189,7 @@ invalid files, mostly-zero files, and labels with too few samples.
 Normalize recorded samples before model training:
 
 ```bash
-python src/normalize_landmarks.py \
-  --input-dir data/processed_landmarks \
-  --output-dir data/normalized_landmarks
+python src/normalize_landmarks.py
 ```
 
 The normalizer preserves the label folder structure:
@@ -176,14 +214,12 @@ python src/dataset.py
 Optional arguments:
 
 ```bash
-python src/dataset.py \
-  --data-dir data/normalized_landmarks \
-  --sequence-length 60
+python src/dataset.py --data-dir data/normalized_landmarks --sequence-length 30
 ```
 
 `LandmarkSequenceDataset` reads label folders alphabetically, creates stable
 label mappings, loads `.npy` sequences, and returns `(sequence, label)` tensors.
-Sequences are trimmed or zero-padded to `60 x 1659` by default. This prepares
+Sequences are trimmed or zero-padded to `30 x 1659` by default. This prepares
 the data shape for a future Temporal CNN, but does not train a model yet.
 
 ## Test the Temporal CNN
@@ -204,22 +240,18 @@ training script should use `CrossEntropyLoss`.
 Train the first isolated-sign Temporal CNN on normalized landmarks:
 
 ```bash
-python src/train.py \
-  --data-dir data/normalized_landmarks \
-  --sequence-length 60 \
-  --epochs 30 \
-  --batch-size 8 \
-  --lr 0.001 \
-  --checkpoint-dir checkpoints
+python src/train.py
 ```
 
-Optional arguments include `--val-split 0.2`, `--dropout 0.3`, and `--seed 42`.
+Optional arguments include `--sequence-length 30`, `--epochs 50`,
+`--batch-size 4`, `--lr 0.001`, `--checkpoint-dir checkpoints_30`,
+`--val-split 0.2`, `--dropout 0.3`, and `--seed 42`.
 The script automatically uses CUDA, Apple Silicon MPS, or CPU. It saves:
 
 ```text
-checkpoints/latest.pt
-checkpoints/best.pt
-checkpoints/label_mapping.json
+checkpoints_30/latest.pt
+checkpoints_30/best.pt
+checkpoints_30/label_mapping.json
 ```
 
 This is an early training prototype for isolated signs only.
@@ -231,8 +263,14 @@ Evaluate a trained checkpoint on normalized landmark samples:
 ```bash
 python src/evaluate.py \
   --data-dir data/normalized_landmarks \
-  --checkpoint checkpoints/best.pt \
-  --sequence-length 60
+  --checkpoint checkpoints_30/best.pt \
+  --sequence-length 30
+```
+
+With the defaults in `src/config.py`, this is usually enough:
+
+```bash
+python src/evaluate.py
 ```
 
 Add `--show-correct` to also print correctly classified samples. The evaluator
@@ -244,17 +282,36 @@ confidence, and a plain-text confusion matrix.
 Use a trained checkpoint with the webcam for isolated-sign prediction:
 
 ```bash
-python src/predict_webcam.py \
-  --checkpoint checkpoints/best.pt \
-  --model-path models/holistic_landmarker.task \
-  --sequence-length 60
+python src/predict_webcam.py
 ```
 
-Optional arguments include `--camera-index 0`, `--process-every-n-frames 2`,
-`--confidence-threshold 0.80`, and `--prediction-interval 5`. The script keeps
+Optional arguments include `--camera-index 0`, `--process-every-n-frames 1`,
+`--confidence-threshold 0.65`, and `--prediction-interval 3`. The script keeps
 a rolling landmark buffer, normalizes it with the same preprocessing used for
 training, runs the Temporal CNN, smooths recent predictions, and displays the
 result on the webcam feed.
+
+## Normal Workflow
+
+The common workflow now uses short commands:
+
+```bash
+python src/record_landmark_sequence.py --label hello --seconds 2
+python src/inspect_dataset.py
+python src/normalize_landmarks.py
+python src/train.py
+python src/evaluate.py
+python src/predict_webcam.py
+```
+
+Optional convenience shell scripts are also available:
+
+```bash
+scripts/run_demo.sh
+scripts/train_30.sh
+scripts/evaluate_30.sh
+scripts/predict_30.sh
+```
 
 ## What the Demo Does
 
@@ -266,8 +323,8 @@ result on the webcam feed.
 - Draws detected landmark points directly with OpenCV.
 - Displays detection status for pose, face, left hand, and right hand.
 - Displays camera/display FPS and MediaPipe processing FPS.
-- Limits webcam capture to 640x480 at 30 FPS and processes every other frame by
-  default to reduce heat and CPU/GPU load.
+- Limits webcam capture to 640x480 at 30 FPS. Processing cadence is controlled
+  by `PROCESS_EVERY_N_FRAMES` in `src/config.py`.
 
 Landmark extraction helpers live in `src/feature_extractor.py`. Drawing helpers
 use variable-length landmark groups, while saved training samples use

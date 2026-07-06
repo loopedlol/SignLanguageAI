@@ -10,12 +10,23 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, Subset
 
-from dataset import FEATURE_COUNT, DEFAULT_DATA_DIR, LandmarkSequenceDataset
+from config import (
+    CHECKPOINT_DIR,
+    INPUT_FEATURES,
+    NORMALIZED_LANDMARKS_DIR,
+    PROJECT_ROOT,
+    SEQUENCE_LENGTH,
+    TRAIN_BATCH_SIZE,
+    TRAIN_DROPOUT,
+    TRAIN_EPOCHS,
+    TRAIN_LR,
+    TRAIN_SEED,
+    TRAIN_VAL_SPLIT,
+)
+from dataset import LandmarkSequenceDataset
 from model import TemporalCNN
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CHECKPOINT_DIR = PROJECT_ROOT / "checkpoints"
+FEATURE_COUNT = INPUT_FEATURES
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,27 +34,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=DEFAULT_DATA_DIR,
+        default=NORMALIZED_LANDMARKS_DIR,
         help="Directory containing normalized label subfolders.",
     )
     parser.add_argument(
         "--sequence-length",
         type=int,
-        default=60,
+        default=SEQUENCE_LENGTH,
         help="Fixed number of frames per sample.",
     )
-    parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--epochs", type=int, default=TRAIN_EPOCHS)
+    parser.add_argument("--batch-size", type=int, default=TRAIN_BATCH_SIZE)
+    parser.add_argument("--lr", type=float, default=TRAIN_LR)
     parser.add_argument(
         "--checkpoint-dir",
         type=Path,
-        default=DEFAULT_CHECKPOINT_DIR,
+        default=CHECKPOINT_DIR,
         help="Directory for latest.pt, best.pt, and label_mapping.json.",
     )
-    parser.add_argument("--val-split", type=float, default=0.2)
-    parser.add_argument("--dropout", type=float, default=0.3)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--val-split", type=float, default=TRAIN_VAL_SPLIT)
+    parser.add_argument("--dropout", type=float, default=TRAIN_DROPOUT)
+    parser.add_argument("--seed", type=int, default=TRAIN_SEED)
     return parser.parse_args()
 
 
@@ -208,6 +219,10 @@ def main() -> int:
         return 1
     if args.lr <= 0:
         print("--lr must be greater than 0.")
+        return 1
+    if args.checkpoint_dir.suffix in {".task", ".pt"}:
+        print("Error: --checkpoint-dir must be a directory, not a .task or .pt file.")
+        print("Example: use --checkpoint-dir checkpoints_30")
         return 1
 
     try:

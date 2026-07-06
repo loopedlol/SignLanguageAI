@@ -14,18 +14,24 @@ import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from config import (
+    CAMERA_FPS,
+    CAMERA_HEIGHT,
+    CAMERA_INDEX,
+    CAMERA_WIDTH,
+    MEDIAPIPE_MODEL_PATH,
+    PROCESS_EVERY_N_FRAMES,
+)
 from feature_extractor import extract_landmarks
 
 
 WINDOW_NAME = "KSL MediaPipe Tasks Demo"
-MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "holistic_landmarker.task"
-PROCESS_EVERY_N_FRAMES = 2
 
 
 def _print_model_error() -> None:
     print(
         "\nMissing MediaPipe model file.\n"
-        f"Expected: {MODEL_PATH}\n\n"
+        f"Expected: {MEDIAPIPE_MODEL_PATH}\n\n"
         "Download the MediaPipe Holistic Landmarker .task model and place it at "
         "that path before running the webcam demo.\n",
         file=sys.stderr,
@@ -33,7 +39,7 @@ def _print_model_error() -> None:
 
 
 def _create_landmarker():
-    if not MODEL_PATH.exists():
+    if not MEDIAPIPE_MODEL_PATH.exists():
         _print_model_error()
         return None
 
@@ -50,7 +56,7 @@ def _create_landmarker():
         )
         return None
 
-    base_options = python.BaseOptions(model_asset_path=str(MODEL_PATH))
+    base_options = python.BaseOptions(model_asset_path=str(MEDIAPIPE_MODEL_PATH))
     options = vision.HolisticLandmarkerOptions(
         base_options=base_options,
         running_mode=vision.RunningMode.VIDEO,
@@ -123,15 +129,15 @@ def main() -> int:
     if landmarker is None:
         return 1
 
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(CAMERA_INDEX)
     if not cap.isOpened():
         print("Could not open the default webcam.", file=sys.stderr)
         landmarker.close()
         return 1
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    cap.set(cv2.CAP_PROP_FPS, 30)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
 
     previous_time = time.perf_counter()
     previous_timestamp_ms = 0

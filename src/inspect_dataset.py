@@ -5,11 +5,13 @@ from pathlib import Path
 
 import numpy as np
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_DIR = PROJECT_ROOT / "data" / "processed_landmarks"
-DEFAULT_EXPECTED_FEATURES = 1659
-ZERO_RATIO_WARNING_THRESHOLD = 0.90
+from config import (
+    INPUT_FEATURES,
+    INSPECT_MIN_SAMPLES,
+    PROCESSED_LANDMARKS_DIR,
+    PROJECT_ROOT,
+    ZERO_RATIO_WARNING_THRESHOLD,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,19 +21,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=DEFAULT_DATA_DIR,
+        default=PROCESSED_LANDMARKS_DIR,
         help="Directory containing label subfolders with .npy samples.",
     )
     parser.add_argument(
         "--expected-features",
         type=int,
-        default=DEFAULT_EXPECTED_FEATURES,
+        default=INPUT_FEATURES,
         help="Expected feature count for each frame.",
     )
     parser.add_argument(
         "--min-samples",
         type=int,
-        default=10,
+        default=INSPECT_MIN_SAMPLES,
         help="Recommended minimum sample count per label.",
     )
     return parser.parse_args()
