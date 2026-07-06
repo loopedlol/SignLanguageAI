@@ -17,12 +17,13 @@ from config import (
     CAMERA_HEIGHT,
     CAMERA_INDEX,
     CAMERA_WIDTH,
-    HAND_LANDMARKER_MODEL_PATH,
+    MEDIAPIPE_MODEL_PATH,
 )
-from mediapipe_utils import create_hand_landmarker
+from feature_extractor import extract_landmarks, flatten_landmarks
+from mediapipe_utils import create_holistic_landmarker
 
 
-WINDOW_NAME = "KSL HandLandmarker Debug Demo"
+WINDOW_NAME = "KSL Holistic Health Check"
 
 
 def _draw_text(
@@ -43,20 +44,36 @@ def _draw_text(
     )
 
 
-def _draw_hand_landmarks(frame: np.ndarray, hand_landmarks) -> None:
+def _draw_status(frame: np.ndarray, label: str, landmarks: list[list[float]], row: int) -> None:
+    detected = len(landmarks) > 0
+    color = (40, 200, 40) if detected else (40, 40, 220)
+    status = "detected" if detected else "missing"
+    _draw_text(frame, f"{label}: {status} ({len(landmarks)})", row, color)
+
+
+def _draw_landmark_points(
+    frame: np.ndarray,
+    landmarks: list[list[float]],
+    color: tuple[int, int, int],
+) -> None:
     height, width, _ = frame.shape
 
-    for hand in hand_landmarks:
-        for landmark in hand:
-            x = int(landmark.x * width)
-            y = int(landmark.y * height)
-            if 0 <= x < width and 0 <= y < height:
-                cv2.circle(frame, (x, y), 3, (40, 220, 255), -1)
+    for x_norm, y_norm, _z_norm in landmarks:
+        x = int(x_norm * width)
+        y = int(y_norm * height)
+        if 0 <= x < width and 0 <= y < height:
+            cv2.circle(frame, (x, y), 2, color, -1)
+
+
+def _draw_all_landmarks(frame: np.ndarray, landmarks: dict[str, list[list[float]]]) -> None:
+    _draw_landmark_points(frame, landmarks["pose"], (80, 220, 120))
+    _draw_landmark_points(frame, landmarks["face"], (80, 110, 255))
+    _draw_landmark_points(frame, landmarks["left_hand"], (255, 180, 90))
+    _draw_landmark_points(frame, landmarks["right_hand"], (90, 220, 255))
 
 
 def main() -> int:
-    model_path = HAND_LANDMARKER_MODEL_PATH
-    landmarker = create_hand_landmarker(model_path)
+    landmarker = create_holistic_landmarker(MEDIAPIPE_MODEL_PATH)
     if landmarker is None:
         return 1
 
@@ -87,15 +104,17 @@ def main() -> int:
                 image_format=mp.ImageFormat.SRGB,
                 data=np.ascontiguousarray(rgb_frame),
             )
-
             timestamp_ms = int(time.perf_counter() * 1000)
             if timestamp_ms <= previous_timestamp_ms:
                 timestamp_ms = previous_timestamp_ms + 1
             previous_timestamp_ms = timestamp_ms
 
             result = landmarker.detect_for_video(mp_image, timestamp_ms)
-            hand_landmarks = result.hand_landmarks or []
-            _draw_hand_landmarks(frame, hand_landmarks)
+            landmarks = extract_landmarks(result)
+            features = flatten_landmarks(landmarks)
+            zero_ratio = float(np.mean(np.asarray(features, dtype=np.float32) == 0))
+
+            _draw_all_landmarks(frame, landmarks)
 
             current_time = time.perf_counter()
             elapsed = current_time - previous_time
@@ -103,9 +122,13 @@ def main() -> int:
             if elapsed > 0:
                 fps = 1.0 / elapsed
 
-            _draw_text(frame, f"hands detected: {len(hand_landmarks)}", 0)
-            _draw_text(frame, f"FPS: {fps:.1f}", 1)
-            _draw_text(frame, "Press q to quit", 2)
+            _draw_status(frame, "Pose", landmarks["pose"], 0)
+            _draw_status(frame, "Face", landmarks["face"], 1)
+            _draw_status(frame, "Left hand", landmarks["left_hand"], 2)
+            _draw_status(frame, "Right hand", landmarks["right_hand"], 3)
+            _draw_text(frame, f"zero ratio: {zero_ratio:.2f}", 4)
+            _draw_text(frame, f"FPS: {fps:.1f}", 5)
+            _draw_text(frame, "Press q to quit", 6)
 
             cv2.imshow(WINDOW_NAME, frame)
             if cv2.waitKey(30) & 0xFF == ord("q"):

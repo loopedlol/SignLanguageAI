@@ -16,6 +16,7 @@ src/
   config.py
   webcam_mediapipe_demo.py
   hand_landmarker_demo.py
+  holistic_health_check.py
   record_landmark_sequence.py
   inspect_dataset.py
   normalize_landmarks.py
@@ -27,6 +28,7 @@ src/
   feature_extractor.py
 scripts/
   run_demo.sh
+  run_holistic_health_check.sh
   train_30.sh
   evaluate_30.sh
   predict_30.sh
@@ -117,6 +119,19 @@ python src/hand_landmarker_demo.py
 
 This demo uses only the MediaPipe Tasks API `HandLandmarker`, draws hand
 landmark dots, displays `hands detected: 0/1/2`, and exits with `q`.
+
+## Debug Holistic Detection
+
+The main recording and prediction pipeline still uses MediaPipe
+`HolisticLandmarker`. To check whether Holistic is detecting pose, face, and
+hands correctly, run:
+
+```bash
+python src/holistic_health_check.py
+```
+
+The health check displays detection status, landmark counts, zero ratio, and
+drawn landmarks for the Holistic model at `models/holistic_landmarker.task`.
 
 ## Record Landmark Sequences
 
@@ -308,10 +323,22 @@ Optional convenience shell scripts are also available:
 
 ```bash
 scripts/run_demo.sh
+scripts/run_holistic_health_check.sh
 scripts/train_30.sh
 scripts/evaluate_30.sh
 scripts/predict_30.sh
 ```
+
+## Troubleshooting MediaPipe
+
+If `hand_landmarker_demo.py` works but `predict_webcam.py` does not:
+
+- the hand-only detector is working
+- the main pipeline may still be failing inside `HolisticLandmarker`
+- run `python src/holistic_health_check.py`
+- if Holistic cannot detect hands, re-download `models/holistic_landmarker.task`
+- if Holistic still fails, switch the main pipeline to `HandLandmarker` plus
+  `PoseLandmarker`
 
 ## What the Demo Does
 

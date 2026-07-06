@@ -13,8 +13,6 @@ os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "ksl_mpl
 import cv2
 import mediapipe as mp
 import numpy as np
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
 
 from config import (
     CAMERA_FPS,
@@ -27,6 +25,7 @@ from config import (
     PROCESS_EVERY_N_FRAMES,
 )
 from feature_extractor import FEATURE_COUNT, extract_landmarks, flatten_landmarks
+from mediapipe_utils import create_holistic_landmarker
 
 
 WINDOW_NAME = "KSL Landmark Sequence Recorder"
@@ -65,41 +64,6 @@ def _sanitize_label(label: str) -> str:
     if not normalized:
         raise ValueError("Label must contain at least one letter or number.")
     return normalized
-
-
-def _print_model_error() -> None:
-    print(
-        "\nMissing MediaPipe model file.\n"
-        f"Expected: {MEDIAPIPE_MODEL_PATH}\n\n"
-        "Download the MediaPipe Holistic Landmarker .task model and place it at "
-        "that path before running the recorder.\n",
-        file=sys.stderr,
-    )
-
-
-def _create_landmarker():
-    if not MEDIAPIPE_MODEL_PATH.exists():
-        _print_model_error()
-        return None
-
-    if not hasattr(vision, "HolisticLandmarker") or not hasattr(
-        vision, "HolisticLandmarkerOptions"
-    ):
-        print(
-            "\nThis installed MediaPipe package does not expose "
-            "vision.HolisticLandmarker.\n"
-            "Install a MediaPipe version that includes the Holistic Landmarker "
-            "Tasks API.\n",
-            file=sys.stderr,
-        )
-        return None
-
-    base_options = python.BaseOptions(model_asset_path=str(MEDIAPIPE_MODEL_PATH))
-    options = vision.HolisticLandmarkerOptions(
-        base_options=base_options,
-        running_mode=vision.RunningMode.VIDEO,
-    )
-    return vision.HolisticLandmarker.create_from_options(options)
 
 
 def _next_sample_path(output_dir: Path, label: str) -> Path:
@@ -162,6 +126,18 @@ def _draw_all_landmarks(frame: np.ndarray, landmarks: dict[str, list[list[float]
     _draw_landmark_points(frame, landmarks["right_hand"], (90, 220, 255))
 
 
+def _draw_status(frame: np.ndarray, label: str, detected: bool, row: int) -> None:
+    status = "detected" if detected else "missing"
+    color = (40, 200, 40) if detected else (40, 40, 220)
+    _draw_text(frame, f"{label}: {status}", row, color)
+
+
+def _zero_ratio(features: list[float]) -> float:
+    if not features:
+        return 1.0
+    return float(np.mean(np.asarray(features, dtype=np.float32) == 0))
+
+
 def _open_camera() -> cv2.VideoCapture | None:
     cap = cv2.VideoCapture(CAMERA_INDEX)
     if not cap.isOpened():
@@ -191,7 +167,7 @@ def main() -> int:
         print("--process-every-n-frames must be at least 1.", file=sys.stderr)
         return 1
 
-    landmarker = _create_landmarker()
+    landmarker = create_holistic_landmarker(MEDIAPIPE_MODEL_PATH)
     if landmarker is None:
         return 1
 
@@ -208,7 +184,11 @@ def main() -> int:
     recording_started_at = 0.0
     saved_message = ""
     saved_message_until = 0.0
+    warning_message = ""
+    warning_message_until = 0.0
     sequence: list[list[float]] = []
+    current_features = [0.0] * FEATURE_COUNT
+    current_zero_ratio = 1.0
     landmarks = {
         "pose": [],
         "face": [],
@@ -240,36 +220,54 @@ def main() -> int:
 
                 result = landmarker.detect_for_video(mp_image, timestamp_ms)
                 landmarks = extract_landmarks(result)
+                current_features = flatten_landmarks(landmarks)
+                current_zero_ratio = _zero_ratio(current_features)
 
             if is_recording:
-                sequence.append(flatten_landmarks(landmarks))
+                sequence.append(current_features)
                 elapsed = time.perf_counter() - recording_started_at
                 if elapsed >= args.seconds:
                     sample_path = _next_sample_path(output_dir, label)
-                    np.save(sample_path, np.asarray(sequence, dtype=np.float32))
+                    saved_array = np.asarray(sequence, dtype=np.float32)
+                    np.save(sample_path, saved_array)
+                    sample_zero_ratio = float(np.mean(saved_array == 0))
                     saved_message = f"Saved: {_display_path(sample_path)}"
                     saved_message_until = time.perf_counter() + 3.0
-                    print(f"{saved_message} shape=({len(sequence)}, {FEATURE_COUNT})")
+                    print(
+                        f"{saved_message} shape=({len(sequence)}, {FEATURE_COUNT}) "
+                        f"zero_ratio={sample_zero_ratio:.2f}"
+                    )
+                    if sample_zero_ratio > 0.90:
+                        warning_message = "Warning: saved sample is mostly zeros"
+                        warning_message_until = time.perf_counter() + 5.0
+                        print(warning_message)
                     sequence = []
                     is_recording = False
 
             _draw_all_landmarks(frame, landmarks)
+            _draw_status(frame, "Pose", len(landmarks["pose"]) > 0, 0)
+            _draw_status(frame, "Face", len(landmarks["face"]) > 0, 1)
+            _draw_status(frame, "Left hand", len(landmarks["left_hand"]) > 0, 2)
+            _draw_status(frame, "Right hand", len(landmarks["right_hand"]) > 0, 3)
+            _draw_text(frame, f"zero ratio: {current_zero_ratio:.2f}", 4)
 
             if is_recording:
-                _draw_text(frame, f"Recording: {label}", 0, (40, 40, 220))
+                _draw_text(frame, f"Recording: {label}", 5, (40, 40, 220))
                 _draw_text(
                     frame,
                     f"Frames collected: {len(sequence)} / {target_frames}",
-                    1,
+                    6,
                     (40, 40, 220),
                 )
             else:
-                _draw_text(frame, "Press r to start recording", 0)
-                _draw_text(frame, "Press q to quit", 1)
-                _draw_text(frame, f"Label: {label}", 2)
-                _draw_text(frame, f"Feature count: {FEATURE_COUNT}", 3)
+                _draw_text(frame, "Press r to start recording", 5)
+                _draw_text(frame, "Press q to quit", 6)
+                _draw_text(frame, f"Label: {label}", 7)
+                _draw_text(frame, f"Feature count: {FEATURE_COUNT}", 8)
                 if saved_message and time.perf_counter() < saved_message_until:
-                    _draw_text(frame, saved_message, 4, (40, 200, 40))
+                    _draw_text(frame, saved_message, 9, (40, 200, 40))
+                if warning_message and time.perf_counter() < warning_message_until:
+                    _draw_text(frame, warning_message, 10, (40, 40, 220))
 
             cv2.imshow(WINDOW_NAME, frame)
             key = cv2.waitKey(30) & 0xFF

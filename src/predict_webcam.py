@@ -14,8 +14,6 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import torch
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
 
 from config import (
     BEST_CHECKPOINT_PATH,
@@ -31,6 +29,7 @@ from config import (
     SEQUENCE_LENGTH,
 )
 from feature_extractor import extract_landmarks, flatten_landmarks
+from mediapipe_utils import create_holistic_landmarker
 from model import TemporalCNN
 from normalize_landmarks import normalize_sequence
 from train import get_device
@@ -97,30 +96,6 @@ def _create_model(checkpoint: dict, device: torch.device) -> TemporalCNN:
     return model
 
 
-def _create_landmarker(model_path: Path):
-    model_path = model_path.expanduser().resolve()
-    if not model_path.exists():
-        print(f"MediaPipe model does not exist: {_display_path(model_path)}", file=sys.stderr)
-        return None
-
-    if not hasattr(vision, "HolisticLandmarker") or not hasattr(
-        vision, "HolisticLandmarkerOptions"
-    ):
-        print(
-            "This installed MediaPipe package does not expose "
-            "vision.HolisticLandmarker.",
-            file=sys.stderr,
-        )
-        return None
-
-    base_options = python.BaseOptions(model_asset_path=str(model_path))
-    options = vision.HolisticLandmarkerOptions(
-        base_options=base_options,
-        running_mode=vision.RunningMode.VIDEO,
-    )
-    return vision.HolisticLandmarker.create_from_options(options)
-
-
 def _open_camera(camera_index: int) -> cv2.VideoCapture | None:
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
@@ -170,6 +145,12 @@ def _draw_all_landmarks(frame: np.ndarray, landmarks: dict[str, list[list[float]
     _draw_landmark_points(frame, landmarks["face"], (80, 110, 255))
     _draw_landmark_points(frame, landmarks["left_hand"], (255, 180, 90))
     _draw_landmark_points(frame, landmarks["right_hand"], (90, 220, 255))
+
+
+def _draw_status(frame: np.ndarray, label: str, detected: bool, row: int) -> None:
+    status = "detected" if detected else "missing"
+    color = (40, 200, 40) if detected else (40, 40, 220)
+    _draw_text(frame, f"{label}: {status}", row, color)
 
 
 def _predict_sequence(
@@ -247,7 +228,7 @@ def main() -> int:
     index_to_label = _normalize_index_to_label(checkpoint.get("index_to_label", {}))
     model = _create_model(checkpoint, device)
 
-    landmarker = _create_landmarker(args.model_path)
+    landmarker = create_holistic_landmarker(args.model_path)
     if landmarker is None:
         return 1
 
@@ -271,6 +252,8 @@ def main() -> int:
     raw_confidence = 0.0
     smoothed_prediction = "unsure"
     smoothed_confidence = 0.0
+    zero_ratio = 1.0
+    frame_is_usable = False
 
     try:
         while True:
@@ -307,9 +290,17 @@ def main() -> int:
                     )
                     break
 
-                sequence_buffer.append(features)
+                pose_detected = len(landmarks["pose"]) > 0
+                left_hand_detected = len(landmarks["left_hand"]) > 0
+                right_hand_detected = len(landmarks["right_hand"]) > 0
+                has_hand = left_hand_detected or right_hand_detected
+                zero_ratio = float(np.mean(np.asarray(features, dtype=np.float32) == 0))
+                frame_is_usable = pose_detected and has_hand and zero_ratio < 0.90
 
-                if len(sequence_buffer) == sequence_length:
+                if frame_is_usable:
+                    sequence_buffer.append(features)
+
+                if frame_is_usable and len(sequence_buffer) == sequence_length:
                     predicted_index, raw_confidence = _predict_sequence(
                         model,
                         sequence_buffer,
@@ -324,8 +315,22 @@ def main() -> int:
                         prediction_history,
                         args.confidence_threshold,
                     )
+            else:
+                frame_is_usable = False
 
             _draw_all_landmarks(frame, landmarks)
+            _draw_status(frame, "Pose", len(landmarks["pose"]) > 0, 0)
+            _draw_status(frame, "Face", len(landmarks["face"]) > 0, 1)
+            _draw_status(frame, "Left hand", len(landmarks["left_hand"]) > 0, 2)
+            _draw_status(frame, "Right hand", len(landmarks["right_hand"]) > 0, 3)
+            zero_color = (40, 200, 40) if zero_ratio < 0.90 else (40, 40, 220)
+            _draw_text(frame, f"zero ratio: {zero_ratio:.2f}", 4, zero_color)
+            _draw_text(
+                frame,
+                f"frame used: {'yes' if frame_is_usable else 'no'}",
+                5,
+                (40, 200, 40) if frame_is_usable else (40, 40, 220),
+            )
 
             display_prediction = (
                 smoothed_prediction
@@ -337,14 +342,14 @@ def main() -> int:
                 if display_prediction != "unsure"
                 else (40, 40, 220)
             )
-            _draw_text(frame, f"Prediction: {display_prediction}", 0, prediction_color)
-            _draw_text(frame, f"Confidence: {smoothed_confidence:.2f}", 1, prediction_color)
-            _draw_text(frame, f"buffer: {len(sequence_buffer)}/{sequence_length}", 2)
-            _draw_text(frame, f"device: {device}", 3)
-            _draw_text(frame, f"raw prediction: {raw_prediction}", 4)
-            _draw_text(frame, f"raw confidence: {raw_confidence:.2f}", 5)
-            _draw_text(frame, f"smoothed prediction: {smoothed_prediction}", 6)
-            _draw_text(frame, f"processed frames: {processed_frame_count}", 7)
+            _draw_text(frame, f"buffer: {len(sequence_buffer)}/{sequence_length}", 6)
+            _draw_text(frame, f"Prediction: {display_prediction}", 7, prediction_color)
+            _draw_text(frame, f"Confidence: {smoothed_confidence:.2f}", 8, prediction_color)
+            _draw_text(frame, f"raw prediction: {raw_prediction}", 9)
+            _draw_text(frame, f"raw confidence: {raw_confidence:.2f}", 10)
+            _draw_text(frame, f"smoothed prediction: {smoothed_prediction}", 11)
+            _draw_text(frame, f"device: {device}", 12)
+            _draw_text(frame, f"processed frames: {processed_frame_count}", 13)
 
             cv2.imshow(WINDOW_NAME, frame)
             if cv2.waitKey(30) & 0xFF == ord("q"):

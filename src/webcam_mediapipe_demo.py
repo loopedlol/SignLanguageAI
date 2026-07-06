@@ -11,8 +11,6 @@ os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "ksl_mpl
 import cv2
 import mediapipe as mp
 import numpy as np
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
 
 from config import (
     CAMERA_FPS,
@@ -23,45 +21,10 @@ from config import (
     PROCESS_EVERY_N_FRAMES,
 )
 from feature_extractor import extract_landmarks
+from mediapipe_utils import create_holistic_landmarker
 
 
 WINDOW_NAME = "KSL MediaPipe Tasks Demo"
-
-
-def _print_model_error() -> None:
-    print(
-        "\nMissing MediaPipe model file.\n"
-        f"Expected: {MEDIAPIPE_MODEL_PATH}\n\n"
-        "Download the MediaPipe Holistic Landmarker .task model and place it at "
-        "that path before running the webcam demo.\n",
-        file=sys.stderr,
-    )
-
-
-def _create_landmarker():
-    if not MEDIAPIPE_MODEL_PATH.exists():
-        _print_model_error()
-        return None
-
-    if not hasattr(vision, "HolisticLandmarker") or not hasattr(
-        vision, "HolisticLandmarkerOptions"
-    ):
-        print(
-            "\nThis installed MediaPipe package does not expose "
-            "vision.HolisticLandmarker.\n"
-            "Install a MediaPipe version that includes the Holistic Landmarker "
-            "Tasks API, or use separate Tasks API landmarkers for pose, face, "
-            "and hands.\n",
-            file=sys.stderr,
-        )
-        return None
-
-    base_options = python.BaseOptions(model_asset_path=str(MEDIAPIPE_MODEL_PATH))
-    options = vision.HolisticLandmarkerOptions(
-        base_options=base_options,
-        running_mode=vision.RunningMode.VIDEO,
-    )
-    return vision.HolisticLandmarker.create_from_options(options)
 
 
 def _draw_status(frame: np.ndarray, label: str, detected: bool, row: int) -> None:
@@ -125,7 +88,7 @@ def _draw_all_landmarks(frame: np.ndarray, landmarks: dict[str, list[list[float]
 
 
 def main() -> int:
-    landmarker = _create_landmarker()
+    landmarker = create_holistic_landmarker(MEDIAPIPE_MODEL_PATH)
     if landmarker is None:
         return 1
 
