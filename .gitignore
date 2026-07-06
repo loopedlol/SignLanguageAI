@@ -5,3 +5,6 @@ __pycache__/
 # Downloaded MediaPipe model files can be large and are environment-specific.
 models/*.task
 !models/.gitkeep
+
+# Training outputs.
+checkpoints/

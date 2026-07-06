@@ -1,7 +1,8 @@
 """Feature helpers for MediaPipe Tasks API landmark results.
 
-Missing landmark groups are represented as empty lists. This keeps the first
-webcam milestone simple while still making detection absence explicit.
+``extract_landmarks`` returns variable-length landmark groups for drawing and
+debugging. ``flatten_landmarks`` returns a fixed-length vector and zero-fills
+missing groups so recorded samples are ready for future model training.
 """
 
 from __future__ import annotations
@@ -12,6 +13,15 @@ from typing import Any
 Landmark = list[float]
 LandmarkGroup = list[Landmark]
 LandmarkDict = dict[str, LandmarkGroup]
+
+LANDMARK_GROUP_ORDER = ("pose", "face", "left_hand", "right_hand")
+EXPECTED_LANDMARK_COUNTS = {
+    "pose": 33,
+    "face": 478,
+    "left_hand": 21,
+    "right_hand": 21,
+}
+FEATURE_COUNT = sum(EXPECTED_LANDMARK_COUNTS.values()) * 3
 
 
 def _as_single_landmark_group(value: Any) -> Any:
@@ -65,11 +75,22 @@ def extract_landmarks(result: Any) -> LandmarkDict:
 
 
 def flatten_landmarks(landmarks: LandmarkDict) -> list[float]:
-    """Flatten extracted landmarks into a single [x, y, z, ...] list."""
+    """Flatten landmarks into a fixed-length [x, y, z, ...] feature vector.
+
+    Missing landmarks are zero-filled. If a detected group has fewer landmarks
+    than expected, the remainder is padded with zeros. If it has more, the group
+    is truncated to the expected count.
+    """
     flattened: list[float] = []
 
-    for group_name in ("pose", "face", "left_hand", "right_hand"):
-        for x, y, z in landmarks.get(group_name, []):
+    for group_name in LANDMARK_GROUP_ORDER:
+        expected_count = EXPECTED_LANDMARK_COUNTS[group_name]
+        group = landmarks.get(group_name, [])
+
+        for x, y, z in group[:expected_count]:
             flattened.extend([x, y, z])
+
+        missing_count = expected_count - min(len(group), expected_count)
+        flattened.extend([0.0] * missing_count * 3)
 
     return flattened
