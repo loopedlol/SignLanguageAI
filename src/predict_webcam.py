@@ -68,6 +68,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--process-every-n-frames", type=int, default=PROCESS_EVERY_N_FRAMES)
     parser.add_argument("--confidence-threshold", type=float, default=CONFIDENCE_THRESHOLD)
     parser.add_argument("--prediction-interval", type=int, default=PREDICTION_INTERVAL)
+    parser.add_argument(
+        "--reset-after-unusable-frames",
+        type=int,
+        default=10,
+        help="Clear live prediction state after this many consecutive unusable processed frames.",
+    )
     return parser.parse_args()
 
 
@@ -159,6 +165,15 @@ def _smooth_prediction(
     return best_label, best_confidence
 
 
+def _clear_prediction_state(
+    sequence_buffer: deque[list[float]],
+    prediction_history: deque[tuple[str, float]],
+) -> tuple[str, float, str, float]:
+    sequence_buffer.clear()
+    prediction_history.clear()
+    return "waiting", 0.0, "unsure", 0.0
+
+
 def main() -> int:
     args = parse_args()
 
@@ -167,6 +182,9 @@ def main() -> int:
         return 1
     if args.prediction_interval <= 0:
         print("--prediction-interval must be at least 1.", file=sys.stderr)
+        return 1
+    if args.reset_after_unusable_frames <= 0:
+        print("--reset-after-unusable-frames must be at least 1.", file=sys.stderr)
         return 1
     if not 0 <= args.confidence_threshold <= 1:
         print("--confidence-threshold must be between 0 and 1.", file=sys.stderr)
@@ -213,6 +231,9 @@ def main() -> int:
     raw_confidence = 0.0
     smoothed_prediction = "unsure"
     smoothed_confidence = 0.0
+    consecutive_unusable_frames = 0
+    state_reset_message = ""
+    state_reset_message_until = 0.0
     zero_ratio = 1.0
     frame_is_usable = False
 
@@ -261,6 +282,19 @@ def main() -> int:
 
                 if frame_is_usable:
                     sequence_buffer.append(features)
+                    consecutive_unusable_frames = 0
+                else:
+                    consecutive_unusable_frames += 1
+                    if consecutive_unusable_frames >= args.reset_after_unusable_frames:
+                        (
+                            raw_prediction,
+                            raw_confidence,
+                            smoothed_prediction,
+                            smoothed_confidence,
+                        ) = _clear_prediction_state(sequence_buffer, prediction_history)
+                        consecutive_unusable_frames = 0
+                        state_reset_message = "state reset: no usable frames"
+                        state_reset_message_until = time.perf_counter() + 2.0
 
                 if frame_is_usable and len(sequence_buffer) == sequence_length:
                     predicted_index, raw_confidence = _predict_sequence(
@@ -312,15 +346,40 @@ def main() -> int:
                 next_row + 2,
                 prediction_color,
             )
-            draw_text(frame, f"raw prediction: {raw_prediction}", next_row + 3)
-            draw_text(frame, f"raw confidence: {raw_confidence:.2f}", next_row + 4)
-            draw_text(frame, f"smoothed prediction: {smoothed_prediction}", next_row + 5)
-            draw_text(frame, f"device: {device}", next_row + 6)
-            draw_text(frame, f"processed frames: {processed_frame_count}", next_row + 7)
+            draw_text(
+                frame,
+                f"prediction history: {len(prediction_history)}/{args.prediction_interval}",
+                next_row + 3,
+            )
+            draw_text(
+                frame,
+                f"unusable streak: {consecutive_unusable_frames}/"
+                f"{args.reset_after_unusable_frames}",
+                next_row + 4,
+            )
+            draw_text(frame, f"raw prediction: {raw_prediction}", next_row + 5)
+            draw_text(frame, f"raw confidence: {raw_confidence:.2f}", next_row + 6)
+            draw_text(frame, f"smoothed prediction: {smoothed_prediction}", next_row + 7)
+            draw_text(frame, f"device: {device}", next_row + 8)
+            draw_text(frame, f"processed frames: {processed_frame_count}", next_row + 9)
+            draw_text(frame, "Press c to clear prediction buffer", next_row + 10)
+            if state_reset_message and time.perf_counter() < state_reset_message_until:
+                draw_text(frame, state_reset_message, next_row + 11, (40, 40, 220))
 
             cv2.imshow(WINDOW_NAME, frame)
-            if cv2.waitKey(30) & 0xFF == ord("q"):
+            key = cv2.waitKey(30) & 0xFF
+            if key == ord("q"):
                 break
+            if key == ord("c"):
+                (
+                    raw_prediction,
+                    raw_confidence,
+                    smoothed_prediction,
+                    smoothed_confidence,
+                ) = _clear_prediction_state(sequence_buffer, prediction_history)
+                consecutive_unusable_frames = 0
+                state_reset_message = "state reset: prediction buffer cleared"
+                state_reset_message_until = time.perf_counter() + 2.0
     finally:
         cap.release()
         landmarker.close()
