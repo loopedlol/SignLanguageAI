@@ -1,11 +1,65 @@
 # KSL Temporal CNN
 
-First milestone for a Korean Sign Language recognition project. This version
-does not train a model yet; it provides a live webcam preprocessing demo that
-captures video, runs MediaPipe Tasks API landmark detection, and overlays the
-detected body points on the webcam feed.
+A prototype pipeline for **isolated Korean Sign Language recognition** from webcam video. The project uses MediaPipe Tasks to extract pose, face, and hand landmarks, normalizes temporal landmark sequences, trains a PyTorch Temporal CNN, evaluates saved checkpoints, and runs live webcam prediction.
 
-## Project Structure
+**Stack:** Python · PyTorch · MediaPipe Tasks · OpenCV · NumPy
+
+> **Project status:** the repository supports an end-to-end isolated-sign workflow from recording through live inference. It is still an early prototype and does **not** attempt sentence-level sign-language translation.
+
+## Pipeline
+
+```text
+Webcam video
+    ↓
+MediaPipe landmark extraction
+    ↓
+Fixed-length landmark sequences
+    ↓
+Normalization around the body reference
+    ↓
+Temporal CNN training
+    ↓
+Checkpoint evaluation
+    ↓
+Live webcam prediction
+```
+
+The main workflow is intentionally split into small scripts so each stage can be inspected and debugged independently.
+
+## Quick start
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+On Windows, activate with:
+
+```powershell
+.venv\Scripts\activate
+```
+
+The MediaPipe task model is not committed to the repository. Download the Holistic Landmarker model and place it at:
+
+```text
+models/holistic_landmarker.task
+```
+
+Then the normal experiment workflow is:
+
+```bash
+python src/record_landmark_sequence.py --label hello --seconds 2
+python src/inspect_dataset.py
+python src/normalize_landmarks.py
+python src/train.py
+python src/evaluate.py
+python src/predict_webcam.py
+```
+
+## Project structure
 
 ```text
 README.md
@@ -38,110 +92,45 @@ data/
   normalized_landmarks/
 ```
 
-The `models/holistic_landmarker.task` file is not committed. Download the
-MediaPipe Holistic Landmarker task model and place it at that path before
-running the demo.
+Most default paths and runtime settings live in `src/config.py`, including sequence length, checkpoint folder, camera settings, prediction threshold, and training settings.
 
-Most default paths and runtime settings live in `src/config.py`. You can edit
-that file to change the default sequence length, checkpoint folder, camera
-settings, prediction threshold, and training settings without typing long
-terminal commands.
+## 1. Test landmark detection
 
-## Install
-
-From this directory, create and activate a virtual environment:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-If your system exposes Python as `python3`, use `python3` for the commands
-above instead.
-
-## Model File
-
-The webcam demo expects:
-
-```text
-models/holistic_landmarker.task
-```
-
-If that file is missing, the script prints a clear error and exits. The demo
-uses the modern MediaPipe Tasks API via:
-
-```python
-import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
-```
-
-It does not use the old `mediapipe.solutions` API.
-
-Important file distinction:
-
-- MediaPipe `.task` file: the landmark detector used to extract body, face, and
-  hand points from webcam frames.
-- PyTorch `.pt` file: the trained KSL sign classifier checkpoint saved by
-  `src/train.py`.
-
-Do not swap these paths. The prediction script checks that `--model-path` points
-to a `.task` file and `--checkpoint` points to a `.pt` file.
-
-## Run the Webcam Demo
+Run the main webcam preprocessing demo:
 
 ```bash
 python src/webcam_mediapipe_demo.py
 ```
 
-Press `q` while the OpenCV window is focused to exit cleanly.
+The demo opens the default webcam, runs the MediaPipe Tasks API Holistic Landmarker in video mode, extracts pose/face/hand landmarks, and overlays detections on the video. Press `q` to exit.
 
-## Debug Hand Detection Only
-
-To test MediaPipe hand landmark detection independently from Holistic and the
-Temporal CNN, download the MediaPipe Hand Landmarker model to:
+For a smaller hand-only diagnostic, place a Hand Landmarker model at:
 
 ```text
 models/hand_landmarker.task
 ```
 
-Then run:
+and run:
 
 ```bash
 python src/hand_landmarker_demo.py
 ```
 
-This demo uses only the MediaPipe Tasks API `HandLandmarker`, draws hand
-landmark dots, displays `hands detected: 0/1/2`, and exits with `q`.
-
-## Debug Holistic Detection
-
-The main recording and prediction pipeline still uses MediaPipe
-`HolisticLandmarker`. To check whether Holistic is detecting pose, face, and
-hands correctly, run:
+To inspect the full Holistic pipeline and landmark counts:
 
 ```bash
 python src/holistic_health_check.py
 ```
 
-The health check displays detection status, landmark counts, zero ratio, and
-drawn landmarks for the Holistic model at `models/holistic_landmarker.task`.
+## 2. Record training sequences
 
-## Record Landmark Sequences
-
-Use the recorder to collect `.npy` training samples for a sign label:
+Record `.npy` landmark sequences for one label:
 
 ```bash
 python src/record_landmark_sequence.py --label hello --seconds 2
 ```
 
-Optional arguments:
+Example with optional arguments:
 
 ```bash
 python src/record_landmark_sequence.py \
@@ -151,43 +140,32 @@ python src/record_landmark_sequence.py \
   --process-every-n-frames 1
 ```
 
-When the preview window opens:
+When the preview opens:
 
-- Press `r` to record one sample.
-- Press `q` to quit.
-- After a sample is saved, the script returns to preview mode so you can record
-  another sample with the same label.
+- press `r` to record one sample;
+- press `q` to quit;
+- after saving, the recorder returns to preview mode so another sample can be captured for the same label.
 
-Samples are saved under a label folder with auto-incrementing names:
-
-```text
-data/
-  processed_landmarks/
-    hello/
-      hello_001.npy
-      hello_002.npy
-      hello_003.npy
-```
-
-Each saved file is a NumPy array with shape:
+Samples are stored by label:
 
 ```text
-frames x features
+data/processed_landmarks/
+  hello/
+    hello_001.npy
+    hello_002.npy
 ```
 
-Missing landmark groups are zero-filled so every frame has the same feature
-length. For the current feature layout, the vector contains pose, face, left
-hand, and right hand landmarks as `x, y, z` values.
+Each sample is shaped as `frames x features`. Missing landmark groups are zero-filled so every frame uses a consistent feature vector.
 
-## Inspect the Dataset
+## 3. Inspect and normalize the dataset
 
-Before training, inspect the recorded `.npy` files:
+Inspect recorded data before training:
 
 ```bash
 python src/inspect_dataset.py
 ```
 
-Optional arguments:
+Optional example:
 
 ```bash
 python src/inspect_dataset.py \
@@ -196,72 +174,64 @@ python src/inspect_dataset.py \
   --min-samples 10
 ```
 
-The inspector reports label counts, sample shapes, frame length statistics,
-invalid files, mostly-zero files, and labels with too few samples.
+The inspector reports label counts, shapes, frame-length statistics, invalid files, mostly-zero samples, and underrepresented labels.
 
-## Normalize Landmark Sequences
-
-Normalize recorded samples before model training:
+Normalize the landmark sequences with:
 
 ```bash
 python src/normalize_landmarks.py
 ```
 
-The normalizer preserves the label folder structure:
+The normalizer preserves the label-folder structure. Pose shoulders are used as the body reference: landmarks are centered around the shoulder midpoint and scaled by shoulder width, while all-zero missing groups remain zero.
 
-```text
-data/processed_landmarks/hello/hello_001.npy
-data/normalized_landmarks/hello/hello_001.npy
-```
+## 4. Load data for PyTorch
 
-Each frame keeps the same `1659` feature length. Pose shoulders are used as the
-body reference: landmarks are centered around the shoulder midpoint and scaled
-by shoulder width. All-zero missing landmark groups remain zero.
-
-## Load Data for PyTorch
-
-Preview the normalized landmark dataset as a PyTorch `Dataset`:
+Preview the normalized data through the project dataset class:
 
 ```bash
 python src/dataset.py
 ```
 
-Optional arguments:
+or specify settings explicitly:
 
 ```bash
 python src/dataset.py --data-dir data/normalized_landmarks --sequence-length 30
 ```
 
-`LandmarkSequenceDataset` reads label folders alphabetically, creates stable
-label mappings, loads `.npy` sequences, and returns `(sequence, label)` tensors.
-Sequences are trimmed or zero-padded to `30 x 1659` by default. This prepares
-the data shape for a future Temporal CNN, but does not train a model yet.
+`LandmarkSequenceDataset` creates stable label mappings, loads `.npy` sequences, and returns `(sequence, label)` tensors. Sequences are trimmed or zero-padded to `30 x 1659` by default.
 
-## Test the Temporal CNN
+## 5. Temporal CNN
 
-Run a forward-pass check for the first Temporal CNN model:
+Run a forward-pass check:
 
 ```bash
 python src/model.py
 ```
 
-The model accepts tensors shaped `batch x sequence_length x input_features`,
-transposes them for `Conv1d`, and returns raw class logits shaped
-`batch x num_classes`. It intentionally does not apply softmax; a future
-training script should use `CrossEntropyLoss`.
+The model accepts tensors shaped `batch x sequence_length x input_features`, transposes them for `Conv1d`, and returns raw class logits shaped `batch x num_classes`. Softmax is intentionally omitted from the model because training uses a classification loss on the raw logits.
 
-## Train the Prototype Classifier
+## 6. Train the classifier
 
-Train the first isolated-sign Temporal CNN on normalized landmarks:
+Train the isolated-sign Temporal CNN:
 
 ```bash
 python src/train.py
 ```
 
-Optional arguments include `--sequence-length 30`, `--epochs 50`,
-`--batch-size 4`, `--lr 0.001`, `--checkpoint-dir checkpoints_30`,
-`--val-split 0.2`, `--dropout 0.3`, and `--seed 42`.
-The script automatically uses CUDA, Apple Silicon MPS, or CPU. It saves:
+Useful optional arguments include:
+
+```text
+--sequence-length 30
+--epochs 50
+--batch-size 4
+--lr 0.001
+--checkpoint-dir checkpoints_30
+--val-split 0.2
+--dropout 0.3
+--seed 42
+```
+
+The script automatically uses CUDA, Apple Silicon MPS, or CPU and saves:
 
 ```text
 checkpoints_30/latest.pt
@@ -269,11 +239,15 @@ checkpoints_30/best.pt
 checkpoints_30/label_mapping.json
 ```
 
-This is an early training prototype for isolated signs only.
+## 7. Evaluate a checkpoint
 
-## Evaluate a Checkpoint
+Evaluate a trained model with:
 
-Evaluate a trained checkpoint on normalized landmark samples:
+```bash
+python src/evaluate.py
+```
+
+or explicitly:
 
 ```bash
 python src/evaluate.py \
@@ -282,44 +256,32 @@ python src/evaluate.py \
   --sequence-length 30
 ```
 
-With the defaults in `src/config.py`, this is usually enough:
+The evaluator reports total accuracy, per-class accuracy, incorrect predictions with confidence, and a plain-text confusion matrix. Add `--show-correct` to print correct predictions as well.
 
-```bash
-python src/evaluate.py
-```
+## 8. Run live prediction
 
-Add `--show-correct` to also print correctly classified samples. The evaluator
-prints total accuracy, per-class accuracy, incorrect predictions with
-confidence, and a plain-text confusion matrix.
-
-## Run Live Prediction
-
-Use a trained checkpoint with the webcam for isolated-sign prediction:
+Use a trained checkpoint for webcam inference:
 
 ```bash
 python src/predict_webcam.py
 ```
 
-Optional arguments include `--camera-index 0`, `--process-every-n-frames 1`,
-`--confidence-threshold 0.65`, and `--prediction-interval 3`. The script keeps
-a rolling landmark buffer, normalizes it with the same preprocessing used for
-training, runs the Temporal CNN, smooths recent predictions, and displays the
-result on the webcam feed.
+Optional arguments include `--camera-index 0`, `--process-every-n-frames 1`, `--confidence-threshold 0.65`, and `--prediction-interval 3`.
 
-## Normal Workflow
+The prediction script keeps a rolling landmark buffer, applies the same preprocessing used for training, runs the Temporal CNN, smooths recent predictions, and overlays the result on the webcam feed.
 
-The common workflow now uses short commands:
+## Model files: `.task` vs `.pt`
 
-```bash
-python src/record_landmark_sequence.py --label hello --seconds 2
-python src/inspect_dataset.py
-python src/normalize_landmarks.py
-python src/train.py
-python src/evaluate.py
-python src/predict_webcam.py
-```
+The project uses two different model formats:
 
-Optional convenience shell scripts are also available:
+- MediaPipe `.task`: the landmark detector used to extract pose, face, and hand points from frames;
+- PyTorch `.pt`: the trained sign classifier checkpoint produced by `src/train.py`.
+
+The prediction script checks these paths so the two model types are not accidentally swapped.
+
+## Convenience scripts
+
+Several shell scripts wrap common commands:
 
 ```bash
 scripts/run_demo.sh
@@ -329,9 +291,7 @@ scripts/evaluate_30.sh
 scripts/predict_30.sh
 ```
 
-## Reset Data or Checkpoints
-
-Use these scripts when you want to safely restart data collection or training:
+Generated data and checkpoints can be reset with:
 
 ```bash
 bash scripts/clear_data.sh
@@ -339,44 +299,24 @@ bash scripts/clear_models.sh
 bash scripts/clear_all.sh
 ```
 
-- `clear_data.sh` deletes recorded and normalized landmark samples.
-- `clear_models.sh` deletes trained checkpoints.
-- `clear_all.sh` deletes both generated landmark samples and trained checkpoints.
-- None of these scripts delete the MediaPipe `.task` model files.
+These cleanup scripts do not delete the MediaPipe `.task` model files.
 
 ## Troubleshooting MediaPipe
 
-If `hand_landmarker_demo.py` works but `predict_webcam.py` does not:
+If `hand_landmarker_demo.py` works but the Holistic pipeline does not:
 
-- the hand-only detector is working
-- the main pipeline may still be failing inside `HolisticLandmarker`
-- run `python src/holistic_health_check.py`
-- if Holistic cannot detect hands, re-download `models/holistic_landmarker.task`
-- if Holistic still fails, switch the main pipeline to `HandLandmarker` plus
-  `PoseLandmarker`
+1. run `python src/holistic_health_check.py`;
+2. verify or re-download `models/holistic_landmarker.task`;
+3. if Holistic still fails, consider separating the main pipeline into `HandLandmarker` and `PoseLandmarker` components.
 
-## What the Demo Does
+## Current limitations
 
-- Opens the default webcam with OpenCV.
-- Converts frames from BGR to RGB.
-- Wraps each RGB frame as an `mp.Image`.
-- Runs the MediaPipe Tasks API Holistic Landmarker in video mode.
-- Extracts pose, face, left hand, and right hand landmarks.
-- Draws detected landmark points directly with OpenCV.
-- Displays detection status for pose, face, left hand, and right hand.
-- Displays camera/display FPS and MediaPipe processing FPS.
-- Limits webcam capture to 640x480 at 30 FPS. Processing cadence is controlled
-  by `PROCESS_EVERY_N_FRAMES` in `src/config.py`.
+- This is an isolated-sign classifier, not continuous sign-language translation.
+- Model quality depends heavily on the amount and diversity of recorded training data.
+- Landmark extraction quality can vary with camera placement, lighting, occlusion, and motion.
+- The current feature vector is large because it includes pose, face, and both hands.
+- A stronger evaluation setup would use a larger held-out dataset and more systematic per-class analysis.
 
-Landmark extraction helpers live in `src/feature_extractor.py`. Drawing helpers
-use variable-length landmark groups, while saved training samples use
-fixed-length zero-filled feature vectors.
+## Next steps
 
-To tune performance, change `PROCESS_EVERY_N_FRAMES` in
-`src/webcam_mediapipe_demo.py`. Higher values reduce MediaPipe work but make
-landmarks update less often.
-
-## Next Milestone
-
-After the isolated-sign prototype trains reliably, add evaluation tooling and
-real-time prediction before attempting sentence-level translation.
+The next useful milestone is to make isolated-sign recognition more reliable with more varied data, stronger held-out evaluation, and better per-class diagnostics. After that, the project could explore longer temporal context and eventually continuous or sentence-level recognition.
