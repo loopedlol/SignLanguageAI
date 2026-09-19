@@ -2,6 +2,7 @@
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/portfolio/hero-dark.svg">
   <img src="docs/assets/portfolio/hero-light.svg" alt="SignLanguageAI — learning isolated signs from motion." width="1200">
 </picture>
+
 [Colin's portfolio](https://github.com/loopedlol) · [Pipeline](#pipeline) · [Workflow](#start) · [Evaluation limits](#evaluation) · [Detailed guide](docs/WORKFLOW_GUIDE.md)
 
 A prototype for **isolated Korean Sign Language recognition** using webcam landmarks and a PyTorch Temporal CNN. Recording, dataset inspection, normalization, training, checkpoint evaluation, and live inference are separate, inspectable stages.
