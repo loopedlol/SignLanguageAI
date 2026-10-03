@@ -1,22 +1,26 @@
 # SignLanguageAI
 
-I'm experimenting with recognizing individual Korean Sign Language signs from webcam video. Instead of looking at one still image, the program tracks how the hands, face, and body move over a short sequence.
+I'm working on recognizing individual Korean Sign Language signs from webcam video. A sign involves movement, so the model looks at a sequence of frames instead of trying to classify one still image.
+
+I've trained and tried a classifier locally, and the project is still ongoing. The training recordings and trained classifier are not included here, so cloning the repository doesn't give you a ready-to-use recognizer.
+
+[PLACEHOLDER — 10–15 second webcam recording showing a trained sign, the tracked landmarks, and the predicted label. Include an incorrect or uncertain prediction to show the current limits.]
 
 <a id="pipeline"></a>
 ## How it works
 
-MediaPipe tracks points on the person in each frame. A neural network then uses those movement sequences to predict a sign label.
+MediaPipe tracks points on the hands, face, and body. I center those coordinates between the shoulders and scale them by shoulder width before training. This is meant to reduce differences caused by where someone stands in the frame.
 
-The repository includes scripts to record examples, prepare the data, train a model, check its predictions, and try it with a webcam. It is an isolated-sign recognition project, not a translator for full conversations.
+A temporal convolutional network then looks for patterns across 30 frames and predicts a sign label. The surrounding scripts handle recording examples, inspecting missing detections, normalizing the data, training, and webcam predictions.
 
 **Built with:** Python, MediaPipe, PyTorch, and OpenCV.
 
 <a id="evaluation"></a>
-## Current limits
+## What still needs checking
 
-Training recordings and trained sign-recognition models are not included, so this is not a ready-to-use demo. I don't have an independently verified accuracy result to report here.
+This recognizes isolated signs rather than translating full conversations. I don't have an independently verified accuracy result to report.
 
-The evaluation script uses the full normalized dataset by default, which can include examples used in training. Testing on new people or recording sessions requires a separate test dataset.
+The training script splits individual recordings into training and validation sets. The evaluation script uses the full normalized dataset by default, which can include training examples. A stronger test needs separate recordings from new people or sessions, rather than treating that default score as evidence of generalization.
 
 <a id="start"></a>
 ## Try it
