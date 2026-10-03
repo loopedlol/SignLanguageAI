@@ -1,10 +1,14 @@
-# SignLanguageAI
+<a id="signlanguageai"></a>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner-dark.svg">
+  <img src="docs/assets/readme/banner-light.svg" alt="SignLanguageAI — Recognizing individual signs over time." width="100%">
+</picture>
 
 I'm working on recognizing individual Korean Sign Language signs from webcam video. A sign involves movement, so the model looks at a sequence of frames instead of trying to classify one still image.
 
 I've trained and tried a classifier locally, and the project is still ongoing. The training recordings and trained classifier are not included here, so cloning the repository doesn't give you a ready-to-use recognizer.
 
-[PLACEHOLDER — 10–15 second webcam recording showing a trained sign, the tracked landmarks, and the predicted label. Include an incorrect or uncertain prediction to show the current limits.]
+> [PLACEHOLDER — 10–15 second webcam recording showing a trained sign, the tracked landmarks, and the predicted label. Include an incorrect or uncertain prediction to show the current limits.]
 
 <a id="pipeline"></a>
 ## How it works
